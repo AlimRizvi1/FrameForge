@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Plus, Play, Settings, Monitor, Activity } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 
 interface Game {
   id: string;
@@ -11,6 +12,15 @@ function App() {
   const [games, setGames] = useState<Game[]>([
     { id: "1", name: "Tomb Raider", path: "C:/Games/TombRaider/TombRaider.exe" },
   ]);
+
+  const handleLaunch = async (path: string) => {
+    try {
+      const result = await invoke("launch_game", { path });
+      console.log(result);
+    } catch (error) {
+      console.error("Failed to launch game:", error);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white p-8 font-sans">
@@ -53,7 +63,10 @@ function App() {
                     <span className="bg-blue-500/10 text-blue-500 text-[10px] uppercase font-bold px-2 py-0.5 rounded border border-blue-500/20">DX11</span>
                     <span className="bg-green-500/10 text-green-500 text-[10px] uppercase font-bold px-2 py-0.5 rounded border border-green-500/20">Active</span>
                   </div>
-                  <button className="p-2 bg-white text-black rounded-full hover:bg-blue-500 hover:text-white transition-all shadow-lg">
+                  <button 
+                    onClick={() => handleLaunch(game.path)}
+                    className="p-2 bg-white text-black rounded-full hover:bg-blue-500 hover:text-white transition-all shadow-lg"
+                  >
                     <Play size={20} fill="currentColor" />
                   </button>
                 </div>
