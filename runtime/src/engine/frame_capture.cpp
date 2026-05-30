@@ -65,4 +65,17 @@ namespace FrameForge::Engine {
         m_pDevice->CreateTexture2D(&desc, nullptr, &pOutput);
         return pOutput;
     }
+
+    ID3D11Texture2D* FrameCapture::CreateMotionVectorTexture() {
+        if (!m_currentFrame) return nullptr;
+
+        D3D11_TEXTURE2D_DESC desc;
+        m_currentFrame->GetDesc(&desc);
+        desc.Format = DXGI_FORMAT_R16G16_FLOAT; // Store 2D vectors
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+
+        ID3D11Texture2D* pMV = nullptr;
+        m_pDevice->CreateTexture2D(&desc, nullptr, &pMV);
+        return pMV;
+    }
 }
