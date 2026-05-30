@@ -1,9 +1,44 @@
 @import "tailwindcss";
 
+@theme {
+  --color-nvidia-green: #76b900;
+  --color-nvidia-dark: #050505;
+  --color-nvidia-card: #111111;
+  --color-nvidia-border: #222222;
+}
+
+:root {
+  background-color: var(--color-nvidia-dark);
+  color: white;
+}
+
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
   min-height: 100vh;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-nvidia-dark);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-nvidia-green);
+}
+
+.glass {
+  background: rgba(17, 17, 17, 0.7);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
