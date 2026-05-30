@@ -38,7 +38,7 @@ namespace FrameForge::Engine {
 
         // We want a texture we can copy to, but also read from in shaders later
         desc.Usage = D3D11_USAGE_DEFAULT;
-        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
         desc.CPUAccessFlags = 0;
         desc.MiscFlags = 0;
 
@@ -52,5 +52,17 @@ namespace FrameForge::Engine {
 
         std::cout << "[FrameForge] FrameCapture resources initialized: " << desc.Width << "x" << desc.Height << std::endl;
         return true;
+    }
+
+    ID3D11Texture2D* FrameCapture::CreateOutputTexture() {
+        if (!m_currentFrame) return nullptr;
+
+        D3D11_TEXTURE2D_DESC desc;
+        m_currentFrame->GetDesc(&desc);
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+
+        ID3D11Texture2D* pOutput = nullptr;
+        m_pDevice->CreateTexture2D(&desc, nullptr, &pOutput);
+        return pOutput;
     }
 }

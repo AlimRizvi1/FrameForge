@@ -4,6 +4,7 @@
 #include <vector>
 #include "../engine/frame_capture.h"
 #include "../engine/pacing_controller.h"
+#include "../engine/interpolation_engine.h"
 #include "../overlay/overlay.h"
 
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -15,7 +16,10 @@ namespace FrameForge::Hooks {
 
     FrameForge::Engine::FrameCapture* g_FrameCapture = nullptr;
     FrameForge::Engine::PacingController* g_PacingController = nullptr;
+    FrameForge::Engine::InterpolationEngine* g_InterpolationEngine = nullptr;
     FrameForge::Overlay::Manager* g_OverlayManager = nullptr;
+    
+    ID3D11Texture2D* g_InterpolatedFrame = nullptr;
     HWND g_hWindow = nullptr;
     WNDPROC g_OriginalWndProc = nullptr;
 
@@ -35,6 +39,14 @@ namespace FrameForge::Hooks {
             g_PacingController->SetTargetFPS(60); // Default
         }
 
+        if (!g_InterpolationEngine) {
+            ID3D11Device* pDevice = nullptr;
+            pSwapChain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&pDevice));
+            g_InterpolationEngine = new FrameForge::Engine::InterpolationEngine();
+            g_InterpolationEngine->Initialize(pDevice);
+            pDevice->Release();
+        }
+
         if (!g_OverlayManager) {
             g_OverlayManager = new FrameForge::Overlay::Manager();
             g_OverlayManager->Initialize(pSwapChain);
@@ -48,7 +60,31 @@ namespace FrameForge::Hooks {
         g_PacingController->Update();
         g_FrameCapture->Capture(pSwapChain);
 
-        // TODO: Frame Interpolation logic here
+        if (g_FrameCapture->GetPreviousFrame()) {
+            if (!g_InterpolatedFrame) {
+                g_InterpolatedFrame = g_FrameCapture->CreateOutputTexture();
+            }
+
+            ID3D11Device* pDevice = nullptr;
+            pSwapChain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&pDevice));
+            ID3D11DeviceContext* pContext = nullptr;
+            pDevice->GetImmediateContext(&pContext);
+
+            // Simple 50/50 blend for testing
+            g_InterpolationEngine->Process(pContext, 
+                g_FrameCapture->GetPreviousFrame(), 
+                g_FrameCapture->GetCurrentFrame(), 
+                g_InterpolatedFrame, 0.5f);
+
+            // Copy back to backbuffer to see results (experimental)
+            ID3D11Texture2D* pBackBuffer = nullptr;
+            pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer));
+            pContext->CopyResource(pBackBuffer, g_InterpolatedFrame);
+            pBackBuffer->Release();
+
+            pContext->Release();
+            pDevice->Release();
+        }
 
         g_OverlayManager->Render();
 

@@ -12,6 +12,7 @@ namespace FrameForge::Engine {
         bool Capture(IDXGISwapChain* pSwapChain);
         ID3D11Texture2D* GetCurrentFrame() { return m_currentFrame.Get(); }
         ID3D11Texture2D* GetPreviousFrame() { return m_previousFrame.Get(); }
+        ID3D11Texture2D* CreateOutputTexture();
 
     private:
         Microsoft::WRL::ComPtr<ID3D11Device> m_pDevice;
