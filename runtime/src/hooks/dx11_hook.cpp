@@ -3,6 +3,9 @@
 #include <iostream>
 #include <vector>
 #include "../engine/frame_capture.h"
+#include "../overlay/overlay.h"
+
+extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 namespace FrameForge::Hooks {
 
@@ -10,15 +13,36 @@ namespace FrameForge::Hooks {
     Present OriginalPresent = nullptr;
 
     FrameForge::Engine::FrameCapture* g_FrameCapture = nullptr;
+    FrameForge::Overlay::Manager* g_OverlayManager = nullptr;
+    HWND g_hWindow = nullptr;
+    WNDPROC g_OriginalWndProc = nullptr;
+
+    LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+        if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
+            return true;
+        return CallWindowProc(g_OriginalWndProc, hWnd, msg, wParam, lParam);
+    }
 
     HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags) {
         if (!g_FrameCapture) {
             g_FrameCapture = new FrameForge::Engine::FrameCapture();
         }
 
+        if (!g_OverlayManager) {
+            g_OverlayManager = new FrameForge::Overlay::Manager();
+            g_OverlayManager->Initialize(pSwapChain);
+
+            DXGI_SWAP_CHAIN_DESC sd;
+            pSwapChain->GetDesc(&sd);
+            g_hWindow = sd.OutputWindow;
+            g_OriginalWndProc = reinterpret_cast<WNDPROC>(SetWindowLongPtr(g_hWindow, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(HookedWndProc)));
+        }
+
         g_FrameCapture->Capture(pSwapChain);
 
         // TODO: Frame Interpolation logic here
+
+        g_OverlayManager->Render();
 
         return OriginalPresent(pSwapChain, SyncInterval, Flags);
     }
