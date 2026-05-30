@@ -9,7 +9,7 @@ interface Game {
 }
 
 function App() {
-  const [games, setGames] = useState<Game[]>([
+  const [games] = useState<Game[]>([
     { id: "1", name: "Tomb Raider", path: "C:/Games/TombRaider/TombRaider.exe" },
   ]);
 
