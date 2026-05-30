@@ -3,6 +3,7 @@
 #include <iostream>
 #include <vector>
 #include "../engine/frame_capture.h"
+#include "../engine/pacing_controller.h"
 #include "../overlay/overlay.h"
 
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -13,6 +14,7 @@ namespace FrameForge::Hooks {
     Present OriginalPresent = nullptr;
 
     FrameForge::Engine::FrameCapture* g_FrameCapture = nullptr;
+    FrameForge::Engine::PacingController* g_PacingController = nullptr;
     FrameForge::Overlay::Manager* g_OverlayManager = nullptr;
     HWND g_hWindow = nullptr;
     WNDPROC g_OriginalWndProc = nullptr;
@@ -28,6 +30,11 @@ namespace FrameForge::Hooks {
             g_FrameCapture = new FrameForge::Engine::FrameCapture();
         }
 
+        if (!g_PacingController) {
+            g_PacingController = new FrameForge::Engine::PacingController();
+            g_PacingController->SetTargetFPS(60); // Default
+        }
+
         if (!g_OverlayManager) {
             g_OverlayManager = new FrameForge::Overlay::Manager();
             g_OverlayManager->Initialize(pSwapChain);
@@ -38,6 +45,7 @@ namespace FrameForge::Hooks {
             g_OriginalWndProc = reinterpret_cast<WNDPROC>(SetWindowLongPtr(g_hWindow, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(HookedWndProc)));
         }
 
+        g_PacingController->Update();
         g_FrameCapture->Capture(pSwapChain);
 
         // TODO: Frame Interpolation logic here

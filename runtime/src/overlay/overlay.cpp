@@ -3,6 +3,8 @@
 #include <imgui_impl_dx11.h>
 #include <imgui_impl_win32.h>
 #include <iostream>
+#include "../hooks/dx11_hook.h"
+#include "../engine/pacing_controller.h"
 
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -49,11 +51,17 @@ namespace FrameForge::Overlay {
         ImGui::NewFrame();
 
         ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize(ImVec2(200, 100), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(200, 120), ImGuiCond_FirstUseEver);
 
         if (ImGui::Begin("FrameForge Status", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse)) {
-            ImGui::Text("Render FPS: %.1f", ImGui::GetIO().Framerate);
+            float actualFps = 0.0f;
+            if (FrameForge::Hooks::g_PacingController) {
+                actualFps = FrameForge::Hooks::g_PacingController->GetActualFPS();
+            }
+            ImGui::Text("Render FPS: %.1f", actualFps);
             ImGui::Text("State: Active");
+            ImGui::Separator();
+            ImGui::Text("Pacing: Stable");
         }
         ImGui::End();
 
