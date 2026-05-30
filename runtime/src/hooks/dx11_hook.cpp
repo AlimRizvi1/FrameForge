@@ -2,20 +2,23 @@
 #include <MinHook.h>
 #include <iostream>
 #include <vector>
+#include "../engine/frame_capture.h"
 
 namespace FrameForge::Hooks {
 
     typedef HRESULT(STDMETHODCALLTYPE* Present)(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags);
     Present OriginalPresent = nullptr;
 
+    FrameForge::Engine::FrameCapture* g_FrameCapture = nullptr;
+
     HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags) {
-        static bool initial_log = false;
-        if (!initial_log) {
-            std::cout << "[FrameForge] Present Called!" << std::endl;
-            initial_log = true;
+        if (!g_FrameCapture) {
+            g_FrameCapture = new FrameForge::Engine::FrameCapture();
         }
 
-        // TODO: Frame Capture & Interpolation logic here
+        g_FrameCapture->Capture(pSwapChain);
+
+        // TODO: Frame Interpolation logic here
 
         return OriginalPresent(pSwapChain, SyncInterval, Flags);
     }
