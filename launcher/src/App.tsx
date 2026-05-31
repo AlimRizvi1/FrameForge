@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion, AnimatePresence } from "framer-motion";
+import { message } from "@tauri-apps/plugin-dialog";
 
 interface Game {
   id: string;
@@ -25,18 +26,22 @@ interface Game {
 
 function App() {
   const [activeTab, setActiveTab] = useState("library");
-  const [games] = useState<Game[]>([
-    { id: "1", name: "Tomb Raider", path: "C:/Games/TombRaider/TombRaider.exe", lastPlayed: "2 hours ago", fps: 60 },
-    { id: "2", name: "BioShock Infinite", path: "C:/Games/BioShock/BioShock.exe", lastPlayed: "Yesterday", fps: 45 },
-    { id: "3", name: "Batman Arkham City", path: "C:/Games/Batman/Batman.exe", lastPlayed: "3 days ago", fps: 30 },
-  ]);
+  const [games, setGames] = useState<Game[]>([]);
 
-  const handleLaunch = async (path: string) => {
+  const handleLaunch = async (gameId: string, path: string) => {
     try {
       const result = await invoke("launch_game", { path });
       console.log(result);
     } catch (error) {
-      console.error("Failed to launch game:", error);
+      if (error === "FILE_NOT_FOUND") {
+        await message(`The file at ${path} does not exist. It will be removed from your library.`, {
+          title: "File Not Found",
+          kind: "error",
+        });
+        setGames((prev) => prev.filter((g) => g.id !== gameId));
+      } else {
+        console.error("Failed to launch game:", error);
+      }
     }
   };
 
@@ -117,7 +122,7 @@ function App() {
                   </p>
                   <div className="flex gap-4 mt-2">
                     <button 
-                      onClick={() => handleLaunch(games[0].path)}
+                      onClick={() => games[0] && handleLaunch(games[0].id, games[0].path)}
                       className="flex items-center gap-3 bg-nvidia-green hover:bg-[#86d100] text-black px-8 py-3 rounded-full font-black uppercase text-sm transition-all hover:scale-105 active:scale-95 shadow-[0_5px_15px_rgba(118,185,0,0.3)]"
                     >
                       <Play size={18} fill="black" />
@@ -165,13 +170,22 @@ function App() {
                         </div>
                       </div>
                       <button 
-                        onClick={() => handleLaunch(game.path)}
+                        onClick={() => handleLaunch(game.id, game.path)}
                         className="self-center p-3 rounded-xl bg-white/5 hover:bg-nvidia-green text-white hover:text-black transition-all"
                       >
                         <ChevronRight size={20} />
                       </button>
                     </div>
                   ))}
+                  {games.length === 0 && (
+                    <div className="col-span-full py-20 border-2 border-dashed border-nvidia-border rounded-3xl flex flex-col items-center justify-center text-gray-500 gap-4">
+                      <Library size={48} className="opacity-20" />
+                      <p className="font-bold tracking-wide">No games found in your library.</p>
+                      <button className="bg-nvidia-green/10 text-nvidia-green px-6 py-2 rounded-full border border-nvidia-green/20 text-xs font-black uppercase tracking-widest hover:bg-nvidia-green/20 transition-all">
+                        Scan for Games
+                      </button>
+                    </div>
+                  )}
                 </div>
               </section>
             </motion.div>

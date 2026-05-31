@@ -2,6 +2,8 @@
 /node_modules
 /target
 /external/*
+!/external/minhook
+!/external/imgui
 !/external/.gitkeep
 
 # Build artifacts
