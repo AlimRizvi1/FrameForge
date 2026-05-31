@@ -8,6 +8,7 @@
 
 # Build artifacts
 /build/
+/runtime/build/
 /out/
 *.exe
 *.dll
