@@ -14,14 +14,12 @@ import {
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion, AnimatePresence } from "framer-motion";
-import { message } from "@tauri-apps/plugin-dialog";
+import { message, open } from "@tauri-apps/plugin-dialog";
 
 interface Game {
   id: string;
   name: string;
   path: string;
-  lastPlayed: string;
-  fps: number;
 }
 
 function App() {
@@ -42,6 +40,34 @@ function App() {
       } else {
         console.error("Failed to launch game:", error);
       }
+    }
+  };
+
+  const handleAddGame = async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [{
+          name: 'Executable',
+          extensions: ['exe']
+        }]
+      });
+
+      if (selected && typeof selected === 'string') {
+        const path = selected;
+        // Simple name extraction from path
+        const name = path.split(/[\\/]/).pop()?.replace('.exe', '') || "Unknown Game";
+        
+        const newGame: Game = {
+          id: Math.random().toString(36).substr(2, 9),
+          name,
+          path,
+        };
+
+        setGames(prev => [...prev, newGame]);
+      }
+    } catch (error) {
+      console.error("Failed to add game:", error);
     }
   };
 
@@ -114,20 +140,34 @@ function App() {
                 
                 <div className="relative z-20 h-full p-10 flex flex-col justify-center gap-4">
                   <div className="flex items-center gap-2 bg-nvidia-green/10 text-nvidia-green text-[10px] font-black uppercase tracking-[0.2em] px-3 py-1 rounded-full border border-nvidia-green/20 w-fit">
-                    Recently Played
+                    {games.length > 0 ? "Ready to Smooth" : "Welcome"}
                   </div>
-                  <h2 className="text-5xl font-black tracking-tight italic uppercase">Tomb Raider</h2>
+                  <h2 className="text-5xl font-black tracking-tight italic uppercase">
+                    {games.length > 0 ? games[0].name : "FrameForge"}
+                  </h2>
                   <p className="text-gray-400 max-w-md text-sm leading-relaxed">
-                    Optimized for 60 FPS cinematic smoothing. Stability remains 98% throughout the session.
+                    {games.length > 0 
+                      ? "Optimized for cinematic smoothing. Stability remains high throughout the session."
+                      : "Start your journey by adding a game to your library and enabling universal frame smoothing."}
                   </p>
                   <div className="flex gap-4 mt-2">
-                    <button 
-                      onClick={() => games[0] && handleLaunch(games[0].id, games[0].path)}
-                      className="flex items-center gap-3 bg-nvidia-green hover:bg-[#86d100] text-black px-8 py-3 rounded-full font-black uppercase text-sm transition-all hover:scale-105 active:scale-95 shadow-[0_5px_15px_rgba(118,185,0,0.3)]"
-                    >
-                      <Play size={18} fill="black" />
-                      Launch Game
-                    </button>
+                    {games.length > 0 ? (
+                      <button 
+                        onClick={() => handleLaunch(games[0].id, games[0].path)}
+                        className="flex items-center gap-3 bg-nvidia-green hover:bg-[#86d100] text-black px-8 py-3 rounded-full font-black uppercase text-sm transition-all hover:scale-105 active:scale-95 shadow-[0_5px_15px_rgba(118,185,0,0.3)]"
+                      >
+                        <Play size={18} fill="black" />
+                        Launch Game
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={handleAddGame}
+                        className="flex items-center gap-3 bg-nvidia-green hover:bg-[#86d100] text-black px-8 py-3 rounded-full font-black uppercase text-sm transition-all hover:scale-105 active:scale-95 shadow-[0_5px_15px_rgba(118,185,0,0.3)]"
+                      >
+                        <Plus size={18} />
+                        Add Your First Game
+                      </button>
+                    )}
                     <button className="flex items-center gap-2 bg-white/10 hover:bg-white/20 px-6 py-3 rounded-full font-bold text-sm backdrop-blur-md transition-all border border-white/10">
                       Settings
                     </button>
@@ -139,7 +179,10 @@ function App() {
               <section>
                 <div className="flex justify-between items-end mb-6">
                   <h3 className="text-xl font-bold tracking-tight">Your Library</h3>
-                  <button className="text-nvidia-green text-sm font-bold flex items-center gap-1 hover:underline">
+                  <button 
+                    onClick={handleAddGame}
+                    className="text-nvidia-green text-sm font-bold flex items-center gap-1 hover:underline"
+                  >
                     <Plus size={16} /> Add Game
                   </button>
                 </div>
@@ -150,39 +193,42 @@ function App() {
                       key={game.id}
                       className="group flex gap-5 bg-nvidia-card border border-nvidia-border hover:border-nvidia-green/30 p-4 rounded-2xl transition-all hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] cursor-pointer"
                     >
-                      <div className="w-24 h-24 bg-[#1a1a1a] rounded-xl flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                        <Monitor size={32} className="text-gray-700" />
+                      <div className="w-20 h-20 bg-[#1a1a1a] rounded-xl flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                        <Monitor size={28} className="text-gray-700" />
                       </div>
                       <div className="flex-1 flex flex-col justify-center gap-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <h4 className="font-bold text-lg truncate">{game.name}</h4>
-                          <span className="text-[10px] text-gray-500 font-mono uppercase">{game.lastPlayed}</span>
-                        </div>
+                        <h4 className="font-bold text-lg truncate">{game.name}</h4>
                         <div className="flex items-center gap-4 text-xs text-gray-500 font-medium">
-                          <div className="flex items-center gap-1">
-                            <Activity size={12} className="text-nvidia-green" />
-                            Target: {game.fps} FPS
-                          </div>
                           <div className="flex items-center gap-1">
                             <CheckCircle2 size={12} className="text-nvidia-green" />
                             DX11 Ready
                           </div>
+                          <div className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer">
+                            <Settings size={12} />
+                            Game Settings
+                          </div>
                         </div>
                       </div>
-                      <button 
-                        onClick={() => handleLaunch(game.id, game.path)}
-                        className="self-center p-3 rounded-xl bg-white/5 hover:bg-nvidia-green text-white hover:text-black transition-all"
-                      >
-                        <ChevronRight size={20} />
-                      </button>
+                      <div className="flex gap-2 self-center">
+                        <button 
+                          onClick={() => handleLaunch(game.id, game.path)}
+                          className="p-3 rounded-xl bg-nvidia-green/10 hover:bg-nvidia-green text-nvidia-green hover:text-black transition-all"
+                          title="Launch"
+                        >
+                          <Play size={20} fill="currentColor" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                   {games.length === 0 && (
                     <div className="col-span-full py-20 border-2 border-dashed border-nvidia-border rounded-3xl flex flex-col items-center justify-center text-gray-500 gap-4">
                       <Library size={48} className="opacity-20" />
                       <p className="font-bold tracking-wide">No games found in your library.</p>
-                      <button className="bg-nvidia-green/10 text-nvidia-green px-6 py-2 rounded-full border border-nvidia-green/20 text-xs font-black uppercase tracking-widest hover:bg-nvidia-green/20 transition-all">
-                        Scan for Games
+                      <button 
+                        onClick={handleAddGame}
+                        className="bg-nvidia-green/10 text-nvidia-green px-6 py-2 rounded-full border border-nvidia-green/20 text-xs font-black uppercase tracking-widest hover:bg-nvidia-green/20 transition-all"
+                      >
+                        Add Game Manually
                       </button>
                     </div>
                   )}
