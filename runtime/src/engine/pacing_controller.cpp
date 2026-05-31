@@ -1,4 +1,5 @@
 #include "pacing_controller.h"
+#include <iostream>
 
 namespace FrameForge::Engine {
 
@@ -35,6 +36,7 @@ namespace FrameForge::Engine {
         if (elapsed.count() >= 1000) {
             m_renderFps = static_cast<float>(m_renderCount) * 1000.0f / elapsed.count();
             m_displayFps = static_cast<float>(m_displayCount) * 1000.0f / elapsed.count();
+            std::cout << "[FrameForge] RenderFPS=" << m_renderFps << " DisplayFPS=" << m_displayFps << std::endl;
             m_renderCount = 0;
             m_displayCount = 0;
             m_fpsLastTime = now;

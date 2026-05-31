@@ -17,18 +17,36 @@ namespace FrameForge::Overlay {
         if (m_initialized) return true;
 
         if (FAILED(pSwapChain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&m_pDevice)))) {
+            std::cerr << "[FrameForge] Overlay failed to get DX11 device." << std::endl;
             return false;
         }
 
         m_pDevice->GetImmediateContext(&m_pContext);
 
+        if (!m_pContext) {
+            std::cerr << "[FrameForge] Overlay failed to get immediate device context." << std::endl;
+            return false;
+        }
+
         DXGI_SWAP_CHAIN_DESC sd;
-        pSwapChain->GetDesc(&sd);
+        if (FAILED(pSwapChain->GetDesc(&sd))) {
+            std::cerr << "[FrameForge] Overlay failed to get swapchain description." << std::endl;
+            return false;
+        }
+
         InitImGui(sd.OutputWindow);
 
         ID3D11Texture2D* pBackBuffer = nullptr;
-        pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer));
-        m_pDevice->CreateRenderTargetView(pBackBuffer, nullptr, &m_pRenderTargetView);
+        if (FAILED(pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer)))) {
+            std::cerr << "[FrameForge] Overlay failed to get current backbuffer." << std::endl;
+            return false;
+        }
+
+        if (FAILED(m_pDevice->CreateRenderTargetView(pBackBuffer, nullptr, &m_pRenderTargetView))) {
+            std::cerr << "[FrameForge] Overlay failed to create render target view." << std::endl;
+            pBackBuffer->Release();
+            return false;
+        }
         pBackBuffer->Release();
 
         m_initialized = true;
@@ -43,17 +61,37 @@ namespace FrameForge::Overlay {
         ImGui::StyleColorsDark();
     }
 
-    void Manager::Render() {
+    void Manager::Render(IDXGISwapChain* pSwapChain) {
         if (!m_initialized) return;
+
+        // Refresh RenderTargetView each frame to ensure it points to current backbuffer
+        if (m_pRenderTargetView) {
+            m_pRenderTargetView->Release();
+            m_pRenderTargetView = nullptr;
+        }
+        
+        ID3D11Texture2D* pBackBuffer = nullptr;
+        if (FAILED(pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer)))) {
+            std::cerr << "[FrameForge] Overlay failed to get backbuffer for render target." << std::endl;
+            return;
+        }
+        
+        if (FAILED(m_pDevice->CreateRenderTargetView(pBackBuffer, nullptr, &m_pRenderTargetView))) {
+            std::cerr << "[FrameForge] Overlay failed to create render target view for render." << std::endl;
+            pBackBuffer->Release();
+            return;
+        }
+        pBackBuffer->Release();
 
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-        ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize(ImVec2(200, 120), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(220, 120), ImGuiCond_Always);
+        ImGui::SetNextWindowBgAlpha(0.70f);
 
-        if (ImGui::Begin("FrameForge Status", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse)) {
+        if (ImGui::Begin("FrameForge Status", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize)) {
             float renderFps = 0.0f;
             float displayFps = 0.0f;
             if (FrameForge::Hooks::g_PacingController) {

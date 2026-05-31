@@ -9,7 +9,7 @@ namespace FrameForge::Overlay {
         ~Manager();
 
         bool Initialize(IDXGISwapChain* pSwapChain);
-        void Render();
+        void Render(IDXGISwapChain* pSwapChain);
         void Shutdown();
 
     private:
