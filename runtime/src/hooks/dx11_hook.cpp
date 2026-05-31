@@ -68,7 +68,8 @@ namespace FrameForge::Hooks {
             g_OriginalWndProc = reinterpret_cast<WNDPROC>(SetWindowLongPtr(g_hWindow, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(HookedWndProc)));
         }
 
-        g_PacingController->Update();
+        g_PacingController->UpdateRender();
+        g_PacingController->UpdateDisplay(); // Current logic is 1:1, so display = render for now
         g_FrameCapture->Capture(pSwapChain);
 
         if (g_FrameCapture->GetPreviousFrame()) {

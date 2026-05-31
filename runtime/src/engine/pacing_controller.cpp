@@ -27,15 +27,21 @@ namespace FrameForge::Engine {
         return false;
     }
 
-    void PacingController::Update() {
-        m_frameCount++;
+    void PacingController::UpdateRender() {
+        m_renderCount++;
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_fpsLastTime);
 
         if (elapsed.count() >= 1000) {
-            m_actualFps = static_cast<float>(m_frameCount) * 1000.0f / elapsed.count();
-            m_frameCount = 0;
+            m_renderFps = static_cast<float>(m_renderCount) * 1000.0f / elapsed.count();
+            m_displayFps = static_cast<float>(m_displayCount) * 1000.0f / elapsed.count();
+            m_renderCount = 0;
+            m_displayCount = 0;
             m_fpsLastTime = now;
         }
+    }
+
+    void PacingController::UpdateDisplay() {
+        m_displayCount++;
     }
 }

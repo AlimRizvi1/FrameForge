@@ -20,10 +20,15 @@ interface Game {
   id: string;
   name: string;
   path: string;
+  settings: {
+    fpsCap: number;
+    interpolationMode: 'blend' | 'motion-aware';
+  }
 }
 
 function App() {
   const [activeTab, setActiveTab] = useState("library");
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
   const [games, setGames] = useState<Game[]>([]);
 
   const handleLaunch = async (gameId: string, path: string) => {
@@ -55,13 +60,16 @@ function App() {
 
       if (selected && typeof selected === 'string') {
         const path = selected;
-        // Simple name extraction from path
         const name = path.split(/[\\/]/).pop()?.replace('.exe', '') || "Unknown Game";
         
         const newGame: Game = {
           id: Math.random().toString(36).substr(2, 9),
           name,
           path,
+          settings: {
+            fpsCap: 60,
+            interpolationMode: 'blend'
+          }
         };
 
         setGames(prev => [...prev, newGame]);
@@ -71,25 +79,27 @@ function App() {
     }
   };
 
+  const selectedGame = games.find(g => g.id === selectedGameId);
+
   const SidebarItem = ({ id, icon: Icon, label }: { id: string; icon: any; label: string }) => (
     <button
-      onClick={() => setActiveTab(id)}
+      onClick={() => { setActiveTab(id); setSelectedGameId(null); }}
       className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 group ${
-        activeTab === id 
+        activeTab === id && !selectedGameId
           ? "bg-nvidia-green text-black font-bold shadow-[0_0_15px_rgba(118,185,0,0.4)]" 
           : "text-gray-400 hover:text-white hover:bg-white/5"
       }`}
     >
-      <Icon size={20} className={activeTab === id ? "text-black" : "group-hover:text-nvidia-green transition-colors"} />
+      <Icon size={20} className={activeTab === id && !selectedGameId ? "text-black" : "group-hover:text-nvidia-green transition-colors"} />
       <span className="text-sm tracking-wide">{label}</span>
-      {activeTab === id && (
+      {activeTab === id && !selectedGameId && (
         <motion.div layoutId="active" className="ml-auto w-1 h-4 bg-black rounded-full" />
       )}
     </button>
   );
 
   return (
-    <div className="flex h-screen bg-nvidia-dark text-white overflow-hidden">
+    <div className="flex h-screen bg-nvidia-dark text-white overflow-hidden font-sans">
       {/* Sidebar */}
       <aside className="w-64 border-r border-nvidia-border flex flex-col p-6 gap-8 bg-[#080808]">
         <div className="flex items-center gap-3 px-2">
@@ -120,15 +130,15 @@ function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto bg-gradient-to-b from-[#0c0c0c] to-nvidia-dark p-10 custom-scrollbar">
+      <main className="flex-1 overflow-y-auto bg-gradient-to-b from-[#0c0c0c] to-nvidia-dark p-10 custom-scrollbar relative">
         
         <AnimatePresence mode="wait">
-          {activeTab === "library" && (
+          {activeTab === "library" && !selectedGameId && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              key="library"
+              key="library-list"
               className="flex flex-col gap-10"
             >
               {/* Hero Section */}
@@ -169,7 +179,7 @@ function App() {
                       </button>
                     )}
                     <button className="flex items-center gap-2 bg-white/10 hover:bg-white/20 px-6 py-3 rounded-full font-bold text-sm backdrop-blur-md transition-all border border-white/10">
-                      Settings
+                      View Metrics
                     </button>
                   </div>
                 </div>
@@ -203,17 +213,19 @@ function App() {
                             <CheckCircle2 size={12} className="text-nvidia-green" />
                             DX11 Ready
                           </div>
-                          <div className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer">
+                          <div 
+                            onClick={(e) => { e.stopPropagation(); setSelectedGameId(game.id); }}
+                            className="flex items-center gap-1 hover:text-nvidia-green transition-colors cursor-pointer font-bold"
+                          >
                             <Settings size={12} />
-                            Game Settings
+                            Settings
                           </div>
                         </div>
                       </div>
                       <div className="flex gap-2 self-center">
                         <button 
-                          onClick={() => handleLaunch(game.id, game.path)}
+                          onClick={(e) => { e.stopPropagation(); handleLaunch(game.id, game.path); }}
                           className="p-3 rounded-xl bg-nvidia-green/10 hover:bg-nvidia-green text-nvidia-green hover:text-black transition-all"
-                          title="Launch"
                         >
                           <Play size={20} fill="currentColor" />
                         </button>
@@ -237,11 +249,107 @@ function App() {
             </motion.div>
           )}
 
+          {selectedGameId && selectedGame && (
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              key="game-settings"
+              className="flex flex-col gap-8"
+            >
+              <div className="flex items-center gap-4 mb-4">
+                <button 
+                  onClick={() => setSelectedGameId(null)}
+                  className="p-2 hover:bg-white/10 rounded-full transition-all"
+                >
+                  <ChevronRight size={24} className="rotate-180" />
+                </button>
+                <h2 className="text-3xl font-black italic uppercase tracking-tighter">
+                  {selectedGame.name} <span className="text-nvidia-green ml-2">Settings</span>
+                </h2>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="p-8 rounded-3xl glass flex flex-col gap-8">
+                  <h3 className="text-lg font-bold flex items-center gap-2">
+                    <Monitor className="text-nvidia-green" size={20} />
+                    Frame Smoothing
+                  </h3>
+
+                  <div className="space-y-6">
+                    <div className="flex flex-col gap-3">
+                      <div className="flex justify-between items-center">
+                        <label className="text-sm font-bold text-gray-400 uppercase tracking-widest">FPS Cap</label>
+                        <span className="text-nvidia-green font-black">{selectedGame.settings.fpsCap} FPS</span>
+                      </div>
+                      <input 
+                        type="range" 
+                        min="30" 
+                        max="240" 
+                        step="5"
+                        value={selectedGame.settings.fpsCap}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          setGames(prev => prev.map(g => g.id === selectedGame.id ? { ...g, settings: { ...g.settings, fpsCap: val }} : g));
+                        }}
+                        className="w-full h-1.5 bg-nvidia-border rounded-lg appearance-none cursor-pointer accent-nvidia-green"
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-3">
+                      <label className="text-sm font-bold text-gray-400 uppercase tracking-widest">Interpolation Mode</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {['blend', 'motion-aware'].map((mode) => (
+                          <button
+                            key={mode}
+                            onClick={() => {
+                              setGames(prev => prev.map(g => g.id === selectedGame.id ? { ...g, settings: { ...g.settings, interpolationMode: mode as any }} : g));
+                            }}
+                            className={`py-3 rounded-xl border text-xs font-black uppercase tracking-widest transition-all ${
+                              selectedGame.settings.interpolationMode === mode 
+                                ? "bg-nvidia-green text-black border-nvidia-green shadow-[0_0_10px_rgba(118,185,0,0.3)]" 
+                                : "bg-white/5 border-white/10 text-gray-500 hover:text-white hover:bg-white/10"
+                            }`}
+                          >
+                            {mode}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-8 rounded-3xl glass flex flex-col gap-6">
+                  <h3 className="text-lg font-bold flex items-center gap-2">
+                    <Activity className="text-nvidia-green" size={20} />
+                    Engine Preview
+                  </h3>
+                  <div className="flex-1 border border-white/5 bg-black/40 rounded-2xl flex flex-col items-center justify-center p-10 text-center gap-4">
+                    <Cpu size={48} className="text-nvidia-green/20" />
+                    <p className="text-xs text-gray-500 max-w-[200px]">
+                      Smoothing parameters will be injected into {selectedGame.name} upon next launch.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-4 mt-4">
+                <button 
+                  onClick={() => handleLaunch(selectedGame.id, selectedGame.path)}
+                  className="flex items-center gap-3 bg-nvidia-green hover:bg-[#86d100] text-black px-10 py-4 rounded-full font-black uppercase text-sm transition-all hover:scale-105 active:scale-95 shadow-[0_5px_15px_rgba(118,185,0,0.3)]"
+                >
+                  <Play size={18} fill="black" />
+                  Save & Launch
+                </button>
+              </div>
+            </motion.div>
+          )}
+
           {activeTab === "performance" && (
             <motion.div
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
-              key="performance"
+              key="performance-tab"
               className="grid grid-cols-1 md:grid-cols-2 gap-6"
             >
               <div className="p-8 rounded-3xl glass flex flex-col gap-6">
