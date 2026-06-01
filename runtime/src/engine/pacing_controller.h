@@ -9,16 +9,17 @@ namespace FrameForge::Engine {
         ~PacingController();
 
         void SetTargetFPS(int fps);
-        bool ShouldPresent();
-        void UpdateRender(); // Called when game renders a frame
-        void UpdateDisplay(); // Called when FrameForge presents a frame (real or interp)
+        bool ShouldInsertFrame(float& outWeight);
+        void UpdateRender();
+        void UpdateDisplay();
 
         float GetRenderFPS() const { return m_renderFps; }
         float GetDisplayFPS() const { return m_displayFps; }
 
     private:
         int m_targetFps = 60;
-        std::chrono::steady_clock::time_point m_lastPresentTime;
+        std::chrono::steady_clock::time_point m_lastGameFrameTime;
+        std::chrono::steady_clock::time_point m_lastPresentedTime;
         std::chrono::microseconds m_targetInterval;
 
         int m_renderCount = 0;

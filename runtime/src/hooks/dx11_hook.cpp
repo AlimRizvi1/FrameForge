@@ -16,7 +16,6 @@ namespace FrameForge::Hooks {
 
     typedef HRESULT(STDMETHODCALLTYPE* Present)(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags);
     Present OriginalPresent = nullptr;
-
     typedef HRESULT(STDMETHODCALLTYPE* ResizeBuffers)(IDXGISwapChain* pSwapChain, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags);
     ResizeBuffers OriginalResizeBuffers = nullptr;
 
@@ -32,195 +31,99 @@ namespace FrameForge::Hooks {
     WNDPROC g_OriginalWndProc = nullptr;
 
     void CleanupResources() {
-        if (g_OverlayManager) {
-            g_OverlayManager->Shutdown();
-            delete g_OverlayManager;
-            g_OverlayManager = nullptr;
-        }
+        if (g_OverlayManager) { g_OverlayManager->Shutdown(); delete g_OverlayManager; g_OverlayManager = nullptr; }
         if (g_InterpolatedFrame) { g_InterpolatedFrame->Release(); g_InterpolatedFrame = nullptr; }
         if (g_MotionVectors) { g_MotionVectors->Release(); g_MotionVectors = nullptr; }
-        if (g_FrameCapture) {
-            delete g_FrameCapture;
-            g_FrameCapture = nullptr;
-        }
-        // Keep PacingController, InterpolationEngine, MotionEstimator as they are device-dependent not swapchain-dependent
+        if (g_FrameCapture) { delete g_FrameCapture; g_FrameCapture = nullptr; }
     }
 
     LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-        if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
-            return true;
+        if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam)) return true;
         return CallWindowProc(g_OriginalWndProc, hWnd, msg, wParam, lParam);
     }
 
     HRESULT STDMETHODCALLTYPE HookedResizeBuffers(IDXGISwapChain* pSwapChain, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags) {
-        LogToFile("[FrameForge] HookedResizeBuffers: Releasing resources...");
         CleanupResources();
         return OriginalResizeBuffers(pSwapChain, BufferCount, Width, Height, NewFormat, SwapChainFlags);
     }
 
     HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags) {
-        static bool first_present = true;
-        if (first_present) {
-            LogToFile("[FrameForge] HookedPresent: First call received!");
-            first_present = false;
-        }
-
         if (!g_FrameCapture) g_FrameCapture = new FrameForge::Engine::FrameCapture();
         if (!g_PacingController) g_PacingController = new FrameForge::Engine::PacingController();
-
-        if (!g_InterpolationEngine) {
-            ID3D11Device* pDevice = nullptr;
-            if (SUCCEEDED(pSwapChain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&pDevice)))) {
-                g_InterpolationEngine = new FrameForge::Engine::InterpolationEngine();
-                if (g_InterpolationEngine->Initialize(pDevice)) {
-                    LogToFile("[FrameForge] InterpolationEngine ready.");
-                }
-                pDevice->Release();
-            }
-        }
-
-        if (!g_MotionEstimator) {
-            ID3D11Device* pDevice = nullptr;
-            if (SUCCEEDED(pSwapChain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&pDevice)))) {
-                g_MotionEstimator = new FrameForge::Engine::MotionEstimator();
-                if (g_MotionEstimator->Initialize(pDevice)) {
-                    LogToFile("[FrameForge] MotionEstimator ready.");
-                }
-                pDevice->Release();
-            }
-        }
-
-        if (!g_OverlayManager) {
-            g_OverlayManager = new FrameForge::Overlay::Manager();
-            if (g_OverlayManager->Initialize(pSwapChain)) {
-                LogToFile("[FrameForge] OverlayManager ready.");
-                DXGI_SWAP_CHAIN_DESC sd;
-                pSwapChain->GetDesc(&sd);
-                g_hWindow = sd.OutputWindow;
-                g_OriginalWndProc = reinterpret_cast<WNDPROC>(SetWindowLongPtr(g_hWindow, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(HookedWndProc)));
-            }
-        }
-
-        // --- FrameForge Smoothing Pipeline ---
-        
-        // 1. Log the render call
-        g_PacingController->UpdateRender();
-
-        // 2. Capture the REAL frame that the game just finished rendering
-        g_FrameCapture->Capture(pSwapChain);
 
         ID3D11Device* pDevice = nullptr;
         pSwapChain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&pDevice));
         ID3D11DeviceContext* pContext = nullptr;
         pDevice->GetImmediateContext(&pContext);
 
-        // 3. If we have a previous frame, we can do 2x presentation
-        if (g_FrameCapture->GetPreviousFrame()) {
+        if (!g_InterpolationEngine) {
+            g_InterpolationEngine = new FrameForge::Engine::InterpolationEngine();
+            g_InterpolationEngine->Initialize(pDevice);
+        }
+        if (!g_MotionEstimator) {
+            g_MotionEstimator = new FrameForge::Engine::MotionEstimator();
+            g_MotionEstimator->Initialize(pDevice);
+        }
+        if (!g_OverlayManager) {
+            g_OverlayManager = new FrameForge::Overlay::Manager();
+            if (g_OverlayManager->Initialize(pSwapChain)) {
+                DXGI_SWAP_CHAIN_DESC sd; pSwapChain->GetDesc(&sd);
+                g_hWindow = sd.OutputWindow;
+                g_OriginalWndProc = reinterpret_cast<WNDPROC>(SetWindowLongPtr(g_hWindow, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(HookedWndProc)));
+            }
+        }
+
+        // 1. SMART INSERTION: Check if we need to fill a timing gap
+        float dynamicWeight = 0.5f;
+        if (g_FrameCapture->GetPreviousFrame() && g_PacingController->ShouldInsertFrame(dynamicWeight)) {
             if (!g_InterpolatedFrame) g_InterpolatedFrame = g_FrameCapture->CreateOutputTexture();
             if (!g_MotionVectors) g_MotionVectors = g_FrameCapture->CreateMotionVectorTexture();
 
-            // A. Generate Interpolated Frame
+            // A. Truly Motion-Aware Warping
             g_MotionEstimator->Estimate(pContext, g_FrameCapture->GetPreviousFrame(), g_FrameCapture->GetCurrentFrame(), g_MotionVectors);
-            g_InterpolationEngine->Process(pContext, g_FrameCapture->GetPreviousFrame(), g_FrameCapture->GetCurrentFrame(), g_InterpolatedFrame, 0.5f);
+            g_InterpolationEngine->Process(pContext, g_FrameCapture->GetPreviousFrame(), g_FrameCapture->GetCurrentFrame(), g_MotionVectors, g_InterpolatedFrame, dynamicWeight);
 
-            // B. Present Interpolated Frame FIRST
+            // B. Present ONLY the interpolated frame
             ID3D11Texture2D* pBackBuffer = nullptr;
             if (SUCCEEDED(pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer)))) {
                 pContext->CopyResource(pBackBuffer, g_InterpolatedFrame);
                 pBackBuffer->Release();
             }
             OriginalPresent(pSwapChain, SyncInterval, Flags);
-            g_PacingController->UpdateDisplay(); // Count interpolated frame
-
-            // C. Present REAL Frame SECOND
-            if (SUCCEEDED(pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer)))) {
-                pContext->CopyResource(pBackBuffer, g_FrameCapture->GetCurrentFrame());
-                pBackBuffer->Release();
-            }
+            g_PacingController->UpdateDisplay();
         }
 
-        // 4. Render overlay on the final presented frame
+        // 2. REGULAR PATH: Game finished a frame
+        g_PacingController->UpdateRender();
+        g_FrameCapture->Capture(pSwapChain);
+
         if (g_OverlayManager) g_OverlayManager->Render(pSwapChain);
 
-        // 5. Final Present (Real Frame)
         HRESULT hr = OriginalPresent(pSwapChain, SyncInterval, Flags);
-        g_PacingController->UpdateDisplay(); // Count real frame
+        g_PacingController->UpdateDisplay();
 
         pContext->Release();
         pDevice->Release();
-
         return hr;
     }
 
     bool Initialize() {
-        if (MH_Initialize() != MH_OK) {
-             // Already initialized is fine
-        }
-
-        LogToFile("[FrameForge] Initializing DX11 Hooks via discovery...");
-
-        ID3D11Device* pDevice = nullptr;
-        ID3D11DeviceContext* pContext = nullptr;
-        IDXGISwapChain* pSwapChain = nullptr;
-
+        if (MH_Initialize() != MH_OK) {}
+        ID3D11Device* pDevice = nullptr; ID3D11DeviceContext* pContext = nullptr; IDXGISwapChain* pSwapChain = nullptr;
         D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
-        DXGI_SWAP_CHAIN_DESC scd = {};
-        scd.BufferCount = 1;
-        scd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-        scd.OutputWindow = GetDesktopWindow(); 
-        scd.SampleDesc.Count = 1;
-        scd.Windowed = TRUE;
-        scd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
-
-        HRESULT hr = D3D11CreateDeviceAndSwapChain(
-            nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, &featureLevel, 1,
-            D3D11_SDK_VERSION, &scd, &pSwapChain, &pDevice, nullptr, &pContext
-        );
-
-        if (FAILED(hr)) {
-            char buf[128];
-            sprintf_s(buf, sizeof(buf), "[FrameForge] D3D11CreateDeviceAndSwapChain failed with HRESULT: 0x%08X", hr);
-            LogToFile(buf);
-            return false;
-        }
+        DXGI_SWAP_CHAIN_DESC scd = { {0, 0, {0, 0}, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED, DXGI_MODE_SCALING_UNSPECIFIED}, {1, 0}, DXGI_USAGE_RENDER_TARGET_OUTPUT, 1, GetDesktopWindow(), TRUE, DXGI_SWAP_EFFECT_DISCARD, 0 };
+        if (FAILED(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, &featureLevel, 1, D3D11_SDK_VERSION, &scd, &pSwapChain, &pDevice, nullptr, &pContext))) return false;
 
         void** vtable = *reinterpret_cast<void***>(pSwapChain);
-        void* present_addr = vtable[8];
-        void* resize_addr = vtable[13];
+        MH_CreateHook(vtable[8], &HookedPresent, reinterpret_cast<LPVOID*>(&OriginalPresent));
+        MH_CreateHook(vtable[13], &HookedResizeBuffers, reinterpret_cast<LPVOID*>(&OriginalResizeBuffers));
+        MH_EnableHook(MH_ALL_HOOKS);
 
-        if (MH_CreateHook(present_addr, &HookedPresent, reinterpret_cast<LPVOID*>(&OriginalPresent)) != MH_OK) {
-            LogToFile("[FrameForge] MH_CreateHook(Present) FAILED.");
-            pSwapChain->Release(); pDevice->Release(); pContext->Release();
-            return false;
-        }
-
-        if (MH_CreateHook(resize_addr, &HookedResizeBuffers, reinterpret_cast<LPVOID*>(&OriginalResizeBuffers)) != MH_OK) {
-            LogToFile("[FrameForge] MH_CreateHook(ResizeBuffers) FAILED.");
-        }
-
-        if (MH_EnableHook(present_addr) != MH_OK) {
-            LogToFile("[FrameForge] MH_EnableHook(Present) FAILED.");
-            pSwapChain->Release(); pDevice->Release(); pContext->Release();
-            return false;
-        }
-
-        if (MH_EnableHook(resize_addr) != MH_OK) {
-            LogToFile("[FrameForge] MH_EnableHook(ResizeBuffers) FAILED.");
-        }
-
-        pSwapChain->Release();
-        pDevice->Release();
-        pContext->Release();
-
-        char buf[128];
-        sprintf_s(buf, sizeof(buf), "[FrameForge] DX11 Present Hooked at: %p", present_addr);
-        LogToFile(buf);
+        pSwapChain->Release(); pDevice->Release(); pContext->Release();
         return true;
     }
 
     void Shutdown() {
-        LogToFile("[FrameForge] Shutdown: Disabling hooks.");
         MH_DisableHook(MH_ALL_HOOKS);
     }
 }
