@@ -17,40 +17,16 @@ namespace FrameForge::Overlay {
         if (m_initialized) return true;
 
         if (FAILED(pSwapChain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&m_pDevice)))) {
-            std::cerr << "[FrameForge] Overlay failed to get DX11 device." << std::endl;
             return false;
         }
 
         m_pDevice->GetImmediateContext(&m_pContext);
 
-        if (!m_pContext) {
-            std::cerr << "[FrameForge] Overlay failed to get immediate device context." << std::endl;
-            return false;
-        }
-
         DXGI_SWAP_CHAIN_DESC sd;
-        if (FAILED(pSwapChain->GetDesc(&sd))) {
-            std::cerr << "[FrameForge] Overlay failed to get swapchain description." << std::endl;
-            return false;
-        }
-
+        pSwapChain->GetDesc(&sd);
         InitImGui(sd.OutputWindow);
 
-        ID3D11Texture2D* pBackBuffer = nullptr;
-        if (FAILED(pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer)))) {
-            std::cerr << "[FrameForge] Overlay failed to get current backbuffer." << std::endl;
-            return false;
-        }
-
-        if (FAILED(m_pDevice->CreateRenderTargetView(pBackBuffer, nullptr, &m_pRenderTargetView))) {
-            std::cerr << "[FrameForge] Overlay failed to create render target view." << std::endl;
-            pBackBuffer->Release();
-            return false;
-        }
-        pBackBuffer->Release();
-
         m_initialized = true;
-        std::cout << "[FrameForge] Overlay Initialized." << std::endl;
         return true;
     }
 
@@ -59,64 +35,60 @@ namespace FrameForge::Overlay {
         ImGui_ImplWin32_Init(hwnd);
         ImGui_ImplDX11_Init(m_pDevice, m_pContext);
         ImGui::StyleColorsDark();
+        
+        ImGuiIO& io = ImGui::GetIO();
+        io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     }
 
     void Manager::Render(IDXGISwapChain* pSwapChain) {
         if (!m_initialized) return;
 
-        // Refresh RenderTargetView each frame to ensure it points to current backbuffer
-        if (m_pRenderTargetView) {
-            m_pRenderTargetView->Release();
-            m_pRenderTargetView = nullptr;
+        // Only create/update RTV if needed (caching for stability)
+        if (!m_pRenderTargetView) {
+            ID3D11Texture2D* pBackBuffer = nullptr;
+            if (SUCCEEDED(pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer)))) {
+                m_pDevice->CreateRenderTargetView(pBackBuffer, nullptr, &m_pRenderTargetView);
+                pBackBuffer->Release();
+            }
         }
-        
-        ID3D11Texture2D* pBackBuffer = nullptr;
-        if (FAILED(pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer)))) {
-            std::cerr << "[FrameForge] Overlay failed to get backbuffer for render target." << std::endl;
-            return;
-        }
-        
-        if (FAILED(m_pDevice->CreateRenderTargetView(pBackBuffer, nullptr, &m_pRenderTargetView))) {
-            std::cerr << "[FrameForge] Overlay failed to create render target view for render." << std::endl;
-            pBackBuffer->Release();
-            return;
-        }
-        pBackBuffer->Release();
+
+        if (!m_pRenderTargetView) return;
 
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-        ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Always);
-        ImGui::SetNextWindowSize(ImVec2(220, 120), ImGuiCond_Always);
-        ImGui::SetNextWindowBgAlpha(0.70f);
+        ImGui::SetNextWindowPos(ImVec2(20, 20), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(240, 110), ImGuiCond_Always);
 
-        if (ImGui::Begin("FrameForge Status", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize)) {
-            float renderFps = 0.0f;
-            float displayFps = 0.0f;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.02f, 0.02f, 0.02f, 0.85f));
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.46f, 0.72f, 0.0f, 0.4f));
+
+        if (ImGui::Begin("FF_OVERLAY", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize)) {
+            float renderFps = 0.0f, displayFps = 0.0f;
             if (FrameForge::Hooks::g_PacingController) {
                 renderFps = FrameForge::Hooks::g_PacingController->GetRenderFPS();
                 displayFps = FrameForge::Hooks::g_PacingController->GetDisplayFPS();
             }
-            
-            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Real FPS:");
-            ImGui::SameLine(120);
-            ImGui::Text("%.1f", renderFps);
 
-            ImGui::TextColored(ImVec4(0.46f, 0.72f, 0.0f, 1.0f), "FrameForge FPS:");
-            ImGui::SameLine(120);
-            ImGui::Text("%.1f", displayFps);
+            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "GAME RENDER:");
+            ImGui::SameLine(140);
+            ImGui::Text("%.1f FPS", renderFps);
+
+            ImGui::TextColored(ImVec4(0.46f, 0.72f, 0.0f, 1.0f), "FRAMEFORGE:");
+            ImGui::SameLine(140);
+            ImGui::Text("%.1f FPS", displayFps);
 
             ImGui::Separator();
-            ImGui::Text("State:");
-            ImGui::SameLine(120);
-            ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Active");
-
-            ImGui::Text("Motion Aware:");
-            ImGui::SameLine(120);
-            ImGui::TextColored(ImVec4(0.0f, 0.95f, 1.0f, 1.0f), "TRUE");
+            ImGui::TextColored(ImVec4(0.4f, 0.4f, 0.4f, 1.0f), "SMOOTHING:");
+            ImGui::SameLine(140);
+            ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.8f, 1.0f), "ACTIVE");
         }
         ImGui::End();
+
+        ImGui::PopStyleColor(2);
+        ImGui::PopStyleVar();
 
         ImGui::Render();
         m_pContext->OMSetRenderTargets(1, &m_pRenderTargetView, nullptr);
@@ -125,15 +97,10 @@ namespace FrameForge::Overlay {
 
     void Manager::Shutdown() {
         if (!m_initialized) return;
-
         ImGui_ImplDX11_Shutdown();
         ImGui_ImplWin32_Shutdown();
         ImGui::DestroyContext();
-
-        if (m_pRenderTargetView) m_pRenderTargetView->Release();
-        if (m_pContext) m_pContext->Release();
-        if (m_pDevice) m_pDevice->Release();
-
+        if (m_pRenderTargetView) { m_pRenderTargetView->Release(); m_pRenderTargetView = nullptr; }
         m_initialized = false;
     }
 }

@@ -1,7 +1,12 @@
 #include "pacing_controller.h"
 #include <iostream>
+#include <numeric>
+#include <deque>
 
 namespace FrameForge::Engine {
+
+    static std::deque<long long> g_FrameTimes;
+    static const size_t MAX_SAMPLES = 60;
 
     PacingController::PacingController() {
         auto now = std::chrono::steady_clock::now();
@@ -21,20 +26,28 @@ namespace FrameForge::Engine {
     bool PacingController::ShouldInsertFrame(float& outWeight) {
         auto now = std::chrono::steady_clock::now();
         
-        // Time since the last time we actually showed ANYTHING on screen
-        auto elapsedSincePresent = std::chrono::duration_cast<std::chrono::microseconds>(now - m_lastPresentedTime);
-        
-        // Time since the game itself gave us a frame
         auto elapsedSinceGame = std::chrono::duration_cast<std::chrono::microseconds>(now - m_lastGameFrameTime);
+        auto elapsedSinceLastPresent = std::chrono::duration_cast<std::chrono::microseconds>(now - m_lastPresentedTime);
 
-        // SMART BEAT: If we are at the halfway point of our target interval, 
-        // AND the game hasn't given us a new frame yet, insert an interpolated one.
-        if (elapsedSincePresent >= m_targetInterval && elapsedSinceGame < m_targetInterval * 2) {
-            // Calculate dynamic weight based on the game's current rhythm
-            // If the game is at 30fps (33ms) and we want 60fps (16ms), weight should be ~0.5
-            outWeight = (float)elapsedSinceGame.count() / (m_targetInterval.count() * 2.0f);
-            if (outWeight > 0.9f) outWeight = 0.9f; // Cap to avoid jumping
-            
+        // Calculate moving average game frametime
+        long long avgFrameTime = m_targetInterval.count() * 2; // Default to 2x target (30fps if target 60)
+        if (!g_FrameTimes.empty()) {
+            avgFrameTime = std::accumulate(g_FrameTimes.begin(), g_FrameTimes.end(), 0LL) / g_FrameTimes.size();
+        }
+
+        // DYNAMIC PACING LOGIC:
+        // We want to insert a frame if we are roughly halfway through the EXPECTED game frametime,
+        // provided that enough time has passed since our last presentation to not exceed our target refresh.
+        
+        long long triggerPoint = avgFrameTime / 2;
+        
+        if (elapsedSinceGame >= std::chrono::microseconds(triggerPoint) && 
+            elapsedSinceLastPresent >= m_targetInterval &&
+            elapsedSinceGame < std::chrono::microseconds(avgFrameTime)) 
+        {
+            outWeight = (float)elapsedSinceGame.count() / (float)avgFrameTime;
+            if (outWeight > 0.95f) outWeight = 0.95f;
+
             m_lastPresentedTime = now;
             return true;
         }
@@ -43,13 +56,20 @@ namespace FrameForge::Engine {
     }
 
     void PacingController::UpdateRender() {
-        m_renderCount++;
-        m_lastGameFrameTime = std::chrono::steady_clock::now();
-        m_lastPresentedTime = m_lastGameFrameTime; // Game frame counts as a presentation
-
         auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_fpsLastTime);
+        
+        // Record frametime sample
+        long long frameTime = std::chrono::duration_cast<std::chrono::microseconds>(now - m_lastGameFrameTime).count();
+        if (frameTime > 0 && frameTime < 500000) { // Sanity check
+            g_FrameTimes.push_back(frameTime);
+            if (g_FrameTimes.size() > MAX_SAMPLES) g_FrameTimes.pop_front();
+        }
 
+        m_renderCount++;
+        m_lastGameFrameTime = now;
+        m_lastPresentedTime = now;
+
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_fpsLastTime);
         if (elapsed.count() >= 1000) {
             m_renderFps = static_cast<float>(m_renderCount) * 1000.0f / elapsed.count();
             m_displayFps = static_cast<float>(m_displayCount) * 1000.0f / elapsed.count();
