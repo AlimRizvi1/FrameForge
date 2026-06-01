@@ -168,10 +168,20 @@ function App() {
                     {games.length > 0 ? (
                       <button 
                         onClick={() => handleLaunch(games[0].id, games[0].path)}
-                        className="flex items-center gap-3 bg-nvidia-green hover:bg-[#86d100] text-black px-8 py-3 rounded-full font-black uppercase text-sm transition-all hover:scale-105 active:scale-95 shadow-[0_5px_15px_rgba(118,185,0,0.3)]"
+                        disabled={isLaunching}
+                        className={`flex items-center gap-3 bg-nvidia-green hover:bg-[#86d100] text-black px-8 py-3 rounded-full font-black uppercase text-sm transition-all hover:scale-105 active:scale-95 shadow-[0_5px_15px_rgba(118,185,0,0.3)] ${isLaunching ? "opacity-50 cursor-wait animate-pulse" : ""}`}
                       >
-                        <Play size={18} fill="black" />
-                        Launch Game
+                        {isLaunching ? (
+                          <>
+                            <Activity size={18} className="animate-spin" />
+                            Launching...
+                          </>
+                        ) : (
+                          <>
+                            <Play size={18} fill="black" />
+                            Launch Game
+                          </>
+                        )}
                       </button>
                     ) : (
                       <button 

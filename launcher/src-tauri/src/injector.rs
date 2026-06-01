@@ -123,7 +123,7 @@ pub fn launch_and_inject(exe_path: &str, dll_path: &str) -> Result<(), String> {
 
             // Optimization: If we have injected into a child and it's been stable for 5 seconds, 
             // we can likely stop the heavy monitoring to save CPU.
-            if injected_pids.len() > 1 && start_time.elapsed() > Duration::from_secs(12) {
+            if tracked_pids.len() > 1 && start_time.elapsed() > Duration::from_secs(12) {
                 println!("[FrameForge] Stabilization reached. Closing monitor.");
                 break;
             }
