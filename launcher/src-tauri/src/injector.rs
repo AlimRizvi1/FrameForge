@@ -78,7 +78,6 @@ pub fn launch_and_inject(exe_path: &str, dll_path: &str) -> Result<(), String> {
             let current_snapshot = get_all_pids_and_parents();
             let mut new_children = Vec::new();
 
-            // Find all descendants of any currently tracked PID
             for (pid, ppid) in &current_snapshot {
                 if tracked_pids.contains(ppid) && !tracked_pids.contains(pid) {
                     new_children.push(*pid);
@@ -86,9 +85,10 @@ pub fn launch_and_inject(exe_path: &str, dll_path: &str) -> Result<(), String> {
             }
 
             for child_pid in new_children {
+                tracked_pids.insert(child_pid);
+
                 if is_helper_process(child_pid) {
                     println!("[FrameForge] Skipping helper process: {}", child_pid);
-                    tracked_pids.insert(child_pid); // Track it but don't inject
                     continue;
                 }
 
@@ -99,7 +99,6 @@ pub fn launch_and_inject(exe_path: &str, dll_path: &str) -> Result<(), String> {
                     }
                     let _ = CloseHandle(h_child);
                 }
-                tracked_pids.insert(child_pid);
             }
 
             // Check if any tracked process is still alive

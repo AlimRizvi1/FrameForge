@@ -101,36 +101,55 @@ namespace FrameForge::Hooks {
             }
         }
 
+        // --- FrameForge Smoothing Pipeline ---
+        
+        // 1. Log the render call
         g_PacingController->UpdateRender();
+
+        // 2. Capture the REAL frame that the game just finished rendering
         g_FrameCapture->Capture(pSwapChain);
 
+        ID3D11Device* pDevice = nullptr;
+        pSwapChain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&pDevice));
+        ID3D11DeviceContext* pContext = nullptr;
+        pDevice->GetImmediateContext(&pContext);
+
+        // 3. If we have a previous frame, we can do 2x presentation
         if (g_FrameCapture->GetPreviousFrame()) {
             if (!g_InterpolatedFrame) g_InterpolatedFrame = g_FrameCapture->CreateOutputTexture();
             if (!g_MotionVectors) g_MotionVectors = g_FrameCapture->CreateMotionVectorTexture();
 
-            ID3D11Device* pDevice = nullptr;
-            if (SUCCEEDED(pSwapChain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&pDevice)))) {
-                ID3D11DeviceContext* pContext = nullptr;
-                pDevice->GetImmediateContext(&pContext);
+            // A. Generate Interpolated Frame
+            g_MotionEstimator->Estimate(pContext, g_FrameCapture->GetPreviousFrame(), g_FrameCapture->GetCurrentFrame(), g_MotionVectors);
+            g_InterpolationEngine->Process(pContext, g_FrameCapture->GetPreviousFrame(), g_FrameCapture->GetCurrentFrame(), g_InterpolatedFrame, 0.5f);
 
-                g_MotionEstimator->Estimate(pContext, g_FrameCapture->GetPreviousFrame(), g_FrameCapture->GetCurrentFrame(), g_MotionVectors);
-                g_InterpolationEngine->Process(pContext, g_FrameCapture->GetPreviousFrame(), g_FrameCapture->GetCurrentFrame(), g_InterpolatedFrame, 0.5f);
+            // B. Present Interpolated Frame FIRST
+            ID3D11Texture2D* pBackBuffer = nullptr;
+            if (SUCCEEDED(pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer)))) {
+                pContext->CopyResource(pBackBuffer, g_InterpolatedFrame);
+                pBackBuffer->Release();
+            }
+            OriginalPresent(pSwapChain, SyncInterval, Flags);
+            g_PacingController->UpdateDisplay(); // Count interpolated frame
 
-                ID3D11Texture2D* pBackBuffer = nullptr;
-                if (SUCCEEDED(pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer)))) {
-                    pContext->CopyResource(pBackBuffer, g_InterpolatedFrame);
-                    pBackBuffer->Release();
-                }
-
-                pContext->Release();
-                pDevice->Release();
+            // C. Present REAL Frame SECOND
+            if (SUCCEEDED(pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer)))) {
+                pContext->CopyResource(pBackBuffer, g_FrameCapture->GetCurrentFrame());
+                pBackBuffer->Release();
             }
         }
 
-        g_PacingController->UpdateDisplay();
+        // 4. Render overlay on the final presented frame
         if (g_OverlayManager) g_OverlayManager->Render(pSwapChain);
 
-        return OriginalPresent(pSwapChain, SyncInterval, Flags);
+        // 5. Final Present (Real Frame)
+        HRESULT hr = OriginalPresent(pSwapChain, SyncInterval, Flags);
+        g_PacingController->UpdateDisplay(); // Count real frame
+
+        pContext->Release();
+        pDevice->Release();
+
+        return hr;
     }
 
     bool Initialize() {
