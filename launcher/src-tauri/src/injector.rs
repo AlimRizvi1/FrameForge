@@ -86,6 +86,12 @@ pub fn launch_and_inject(exe_path: &str, dll_path: &str) -> Result<(), String> {
             }
 
             for child_pid in new_children {
+                if is_helper_process(child_pid) {
+                    println!("[FrameForge] Skipping helper process: {}", child_pid);
+                    tracked_pids.insert(child_pid); // Track it but don't inject
+                    continue;
+                }
+
                 println!("[FrameForge] Descendant detected (PID: {}). Injecting...", child_pid);
                 if let Ok(h_child) = OpenProcess(PROCESS_ALL_ACCESS, false, child_pid) {
                     if inject_into_handle(h_child, &dll_path_wide).is_ok() {
@@ -114,10 +120,45 @@ pub fn launch_and_inject(exe_path: &str, dll_path: &str) -> Result<(), String> {
                 println!("[FrameForge] All tracked processes exited. Stopping monitor.");
                 break;
             }
+
+            // Optimization: If we have injected into a child and it's been stable for 5 seconds, 
+            // we can likely stop the heavy monitoring to save CPU.
+            if injected_pids.len() > 1 && start_time.elapsed() > Duration::from_secs(12) {
+                println!("[FrameForge] Stabilization reached. Closing monitor.");
+                break;
+            }
         }
     }
 
     Ok(())
+}
+
+fn is_helper_process(pid: u32) -> bool {
+    use windows::Win32::System::Diagnostics::ToolHelp::{Module32FirstW, MODULEENTRY32W, TH32CS_SNAPMODULE, TH32CS_SNAPMODULE32};
+    
+    // Check process name
+    let mut name = String::new();
+    unsafe {
+        let snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
+            Ok(h) => h,
+            Err(_) => return false,
+        };
+        let mut entry = PROCESSENTRY32W::default();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        if Process32FirstW(snapshot, &mut entry).is_ok() {
+            while Process32NextW(snapshot, &mut entry).is_ok() {
+                if entry.th32ProcessID == pid {
+                    name = String::from_utf16_lossy(&entry.szExeFile);
+                    name = name.trim_matches(char::from(0)).to_lowercase();
+                    break;
+                }
+            }
+        }
+        let _ = CloseHandle(snapshot);
+    }
+
+    let blacklist = ["crash", "report", "cef", "helper", "service", "overlay", "steam", "epic", "battle", "unity", "unrealcef", "socialclub"];
+    blacklist.iter().any(|&s| name.contains(s))
 }
 
 unsafe fn inject_into_handle(h_process: HANDLE, dll_path_wide: &[u16]) -> Result<(), String> {

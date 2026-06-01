@@ -18,8 +18,28 @@ void LogToFile(const char* msg) {
     }
 }
 
+static bool IsHelperProcess() {
+    char path[MAX_PATH];
+    GetModuleFileNameA(NULL, path, MAX_PATH);
+    std::string name(path);
+    size_t lastSlash = name.find_last_of("\\/");
+    if (lastSlash != std::string::npos) name = name.substr(lastSlash + 1);
+    for (auto& c : name) c = tolower(c);
+
+    const char* blacklist[] = { "crash", "report", "cef", "helper", "service", "overlay", "steam", "epic", "battle", "unity", "unrealcef", "socialclub" };
+    for (auto b : blacklist) {
+        if (name.find(b) != std::string::npos) return true;
+    }
+    return false;
+}
+
 DWORD WINAPI MainThread(LPVOID lpParam) {
     LogToFile("Runtime Injected. Worker thread starting...");
+
+    if (IsHelperProcess()) {
+        LogToFile("Detected helper process. Terminating worker thread.");
+        return 0;
+    }
 
     const int MAX_RETRIES = 60; 
     int retries = 0;
@@ -43,9 +63,9 @@ DWORD WINAPI MainThread(LPVOID lpParam) {
     }
 
     if (g_HooksInitialized.load()) {
-        LogToFile("Engine ACTIVE. Entering heartbeat mode.");
+        LogToFile("Engine ACTIVE. Entering long-interval heartbeat mode.");
         while (true) {
-            Sleep(10000);
+            Sleep(60000); // 1 minute heartbeat
             LogToFile("Heartbeat - Engine Still Injected");
         }
     } else {
