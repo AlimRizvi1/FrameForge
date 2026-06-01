@@ -19,13 +19,6 @@ void LogToFile(const char* msg) {
 }
 
 DWORD WINAPI MainThread(LPVOID lpParam) {
-    // Only allocate console if a specific debug file exists, to keep game startup clean
-    if (GetFileAttributesA("F:\\FrameForgeDebug.txt") != INVALID_FILE_ATTRIBUTES) {
-        AllocConsole();
-        FILE* f;
-        freopen_s(&f, "CONOUT$", "w", stdout);
-    }
-
     LogToFile("Runtime Injected. Worker thread starting...");
 
     const int MAX_RETRIES = 60; 

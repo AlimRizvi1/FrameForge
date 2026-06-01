@@ -17,6 +17,9 @@ namespace FrameForge::Hooks {
     typedef HRESULT(STDMETHODCALLTYPE* Present)(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags);
     Present OriginalPresent = nullptr;
 
+    typedef HRESULT(STDMETHODCALLTYPE* ResizeBuffers)(IDXGISwapChain* pSwapChain, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags);
+    ResizeBuffers OriginalResizeBuffers = nullptr;
+
     FrameForge::Engine::FrameCapture* g_FrameCapture = nullptr;
     FrameForge::Engine::PacingController* g_PacingController = nullptr;
     FrameForge::Engine::InterpolationEngine* g_InterpolationEngine = nullptr;
@@ -28,10 +31,31 @@ namespace FrameForge::Hooks {
     HWND g_hWindow = nullptr;
     WNDPROC g_OriginalWndProc = nullptr;
 
+    void CleanupResources() {
+        if (g_OverlayManager) {
+            g_OverlayManager->Shutdown();
+            delete g_OverlayManager;
+            g_OverlayManager = nullptr;
+        }
+        if (g_InterpolatedFrame) { g_InterpolatedFrame->Release(); g_InterpolatedFrame = nullptr; }
+        if (g_MotionVectors) { g_MotionVectors->Release(); g_MotionVectors = nullptr; }
+        if (g_FrameCapture) {
+            delete g_FrameCapture;
+            g_FrameCapture = nullptr;
+        }
+        // Keep PacingController, InterpolationEngine, MotionEstimator as they are device-dependent not swapchain-dependent
+    }
+
     LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
             return true;
         return CallWindowProc(g_OriginalWndProc, hWnd, msg, wParam, lParam);
+    }
+
+    HRESULT STDMETHODCALLTYPE HookedResizeBuffers(IDXGISwapChain* pSwapChain, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags) {
+        LogToFile("[FrameForge] HookedResizeBuffers: Releasing resources...");
+        CleanupResources();
+        return OriginalResizeBuffers(pSwapChain, BufferCount, Width, Height, NewFormat, SwapChainFlags);
     }
 
     HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags) {
@@ -144,6 +168,7 @@ namespace FrameForge::Hooks {
 
         void** vtable = *reinterpret_cast<void***>(pSwapChain);
         void* present_addr = vtable[8];
+        void* resize_addr = vtable[13];
 
         if (MH_CreateHook(present_addr, &HookedPresent, reinterpret_cast<LPVOID*>(&OriginalPresent)) != MH_OK) {
             LogToFile("[FrameForge] MH_CreateHook(Present) FAILED.");
@@ -151,10 +176,18 @@ namespace FrameForge::Hooks {
             return false;
         }
 
+        if (MH_CreateHook(resize_addr, &HookedResizeBuffers, reinterpret_cast<LPVOID*>(&OriginalResizeBuffers)) != MH_OK) {
+            LogToFile("[FrameForge] MH_CreateHook(ResizeBuffers) FAILED.");
+        }
+
         if (MH_EnableHook(present_addr) != MH_OK) {
             LogToFile("[FrameForge] MH_EnableHook(Present) FAILED.");
             pSwapChain->Release(); pDevice->Release(); pContext->Release();
             return false;
+        }
+
+        if (MH_EnableHook(resize_addr) != MH_OK) {
+            LogToFile("[FrameForge] MH_EnableHook(ResizeBuffers) FAILED.");
         }
 
         pSwapChain->Release();
