@@ -47,6 +47,14 @@ namespace FrameForge::Hooks {
         return OriginalResizeBuffers(pSwapChain, BufferCount, Width, Height, NewFormat, SwapChainFlags);
     }
 
+    void RenderOverlayAndPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags) {
+        if (g_OverlayManager) {
+            g_OverlayManager->Render(pSwapChain);
+        }
+        OriginalPresent(pSwapChain, SyncInterval, Flags);
+        if (g_PacingController) g_PacingController->UpdateDisplay();
+    }
+
     HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags) {
         if (!g_FrameCapture) g_FrameCapture = new FrameForge::Engine::FrameCapture();
         if (!g_PacingController) g_PacingController = new FrameForge::Engine::PacingController();
@@ -89,22 +97,25 @@ namespace FrameForge::Hooks {
                 pContext->CopyResource(pBackBuffer, g_InterpolatedFrame);
                 pBackBuffer->Release();
             }
-            OriginalPresent(pSwapChain, SyncInterval, Flags);
-            g_PacingController->UpdateDisplay();
+            RenderOverlayAndPresent(pSwapChain, SyncInterval, Flags);
         }
 
         // 2. REGULAR PATH: Game finished a frame
         g_PacingController->UpdateRender();
         g_FrameCapture->Capture(pSwapChain);
 
-        if (g_OverlayManager) g_OverlayManager->Render(pSwapChain);
+        // Copy real frame back to buffer (ensure we're not showing old overlay)
+        ID3D11Texture2D* pBackBuffer = nullptr;
+        if (SUCCEEDED(pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer)))) {
+            pContext->CopyResource(pBackBuffer, g_FrameCapture->GetCurrentFrame());
+            pBackBuffer->Release();
+        }
 
-        HRESULT hr = OriginalPresent(pSwapChain, SyncInterval, Flags);
-        g_PacingController->UpdateDisplay();
+        RenderOverlayAndPresent(pSwapChain, SyncInterval, Flags);
 
         pContext->Release();
         pDevice->Release();
-        return hr;
+        return S_OK;
     }
 
     bool Initialize() {

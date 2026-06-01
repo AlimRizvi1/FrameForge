@@ -111,6 +111,10 @@ namespace FrameForge::Overlay {
             ImGui::Text("State:");
             ImGui::SameLine(120);
             ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Active");
+
+            ImGui::Text("Motion Aware:");
+            ImGui::SameLine(120);
+            ImGui::TextColored(ImVec4(0.0f, 0.95f, 1.0f, 1.0f), "TRUE");
         }
         ImGui::End();
 
