@@ -2,6 +2,7 @@
 #include <MinHook.h>
 #include <iostream>
 #include <vector>
+#include <string>
 #include "../engine/frame_capture.h"
 #include "../engine/pacing_controller.h"
 #include "../engine/interpolation_engine.h"
@@ -9,6 +10,7 @@
 #include "../overlay/overlay.h"
 
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+void LogToFile(const char* msg);
 
 namespace FrameForge::Hooks {
 
@@ -33,28 +35,41 @@ namespace FrameForge::Hooks {
     }
 
     HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags) {
+        static bool first_present = true;
+        if (first_present) {
+            LogToFile("[FrameForge] HookedPresent: First call received!");
+            first_present = false;
+        }
+
         if (!g_FrameCapture) g_FrameCapture = new FrameForge::Engine::FrameCapture();
         if (!g_PacingController) g_PacingController = new FrameForge::Engine::PacingController();
 
         if (!g_InterpolationEngine) {
             ID3D11Device* pDevice = nullptr;
-            pSwapChain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&pDevice));
-            g_InterpolationEngine = new FrameForge::Engine::InterpolationEngine();
-            g_InterpolationEngine->Initialize(pDevice);
-            pDevice->Release();
+            if (SUCCEEDED(pSwapChain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&pDevice)))) {
+                g_InterpolationEngine = new FrameForge::Engine::InterpolationEngine();
+                if (g_InterpolationEngine->Initialize(pDevice)) {
+                    LogToFile("[FrameForge] InterpolationEngine ready.");
+                }
+                pDevice->Release();
+            }
         }
 
         if (!g_MotionEstimator) {
             ID3D11Device* pDevice = nullptr;
-            pSwapChain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&pDevice));
-            g_MotionEstimator = new FrameForge::Engine::MotionEstimator();
-            g_MotionEstimator->Initialize(pDevice);
-            pDevice->Release();
+            if (SUCCEEDED(pSwapChain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&pDevice)))) {
+                g_MotionEstimator = new FrameForge::Engine::MotionEstimator();
+                if (g_MotionEstimator->Initialize(pDevice)) {
+                    LogToFile("[FrameForge] MotionEstimator ready.");
+                }
+                pDevice->Release();
+            }
         }
 
         if (!g_OverlayManager) {
             g_OverlayManager = new FrameForge::Overlay::Manager();
             if (g_OverlayManager->Initialize(pSwapChain)) {
+                LogToFile("[FrameForge] OverlayManager ready.");
                 DXGI_SWAP_CHAIN_DESC sd;
                 pSwapChain->GetDesc(&sd);
                 g_hWindow = sd.OutputWindow;
@@ -70,21 +85,22 @@ namespace FrameForge::Hooks {
             if (!g_MotionVectors) g_MotionVectors = g_FrameCapture->CreateMotionVectorTexture();
 
             ID3D11Device* pDevice = nullptr;
-            pSwapChain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&pDevice));
-            ID3D11DeviceContext* pContext = nullptr;
-            pDevice->GetImmediateContext(&pContext);
+            if (SUCCEEDED(pSwapChain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&pDevice)))) {
+                ID3D11DeviceContext* pContext = nullptr;
+                pDevice->GetImmediateContext(&pContext);
 
-            g_MotionEstimator->Estimate(pContext, g_FrameCapture->GetPreviousFrame(), g_FrameCapture->GetCurrentFrame(), g_MotionVectors);
-            g_InterpolationEngine->Process(pContext, g_FrameCapture->GetPreviousFrame(), g_FrameCapture->GetCurrentFrame(), g_InterpolatedFrame, 0.5f);
+                g_MotionEstimator->Estimate(pContext, g_FrameCapture->GetPreviousFrame(), g_FrameCapture->GetCurrentFrame(), g_MotionVectors);
+                g_InterpolationEngine->Process(pContext, g_FrameCapture->GetPreviousFrame(), g_FrameCapture->GetCurrentFrame(), g_InterpolatedFrame, 0.5f);
 
-            ID3D11Texture2D* pBackBuffer = nullptr;
-            if (SUCCEEDED(pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer)))) {
-                pContext->CopyResource(pBackBuffer, g_InterpolatedFrame);
-                pBackBuffer->Release();
+                ID3D11Texture2D* pBackBuffer = nullptr;
+                if (SUCCEEDED(pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer)))) {
+                    pContext->CopyResource(pBackBuffer, g_InterpolatedFrame);
+                    pBackBuffer->Release();
+                }
+
+                pContext->Release();
+                pDevice->Release();
             }
-
-            pContext->Release();
-            pDevice->Release();
         }
 
         g_PacingController->UpdateDisplay();
@@ -94,10 +110,12 @@ namespace FrameForge::Hooks {
     }
 
     bool Initialize() {
-        if (MH_Initialize() != MH_OK) return false;
+        if (MH_Initialize() != MH_OK) {
+             // Already initialized is fine
+        }
 
-        // Use dummy device to find Present VTable address
-        // This works whether the game has already initialized DX11 or not
+        LogToFile("[FrameForge] Initializing DX11 Hooks via discovery...");
+
         ID3D11Device* pDevice = nullptr;
         ID3D11DeviceContext* pContext = nullptr;
         IDXGISwapChain* pSwapChain = nullptr;
@@ -107,7 +125,7 @@ namespace FrameForge::Hooks {
         scd.BufferCount = 1;
         scd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
         scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-        scd.OutputWindow = GetDesktopWindow(); // Dummy window
+        scd.OutputWindow = GetDesktopWindow(); 
         scd.SampleDesc.Count = 1;
         scd.Windowed = TRUE;
         scd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
@@ -118,7 +136,9 @@ namespace FrameForge::Hooks {
         );
 
         if (FAILED(hr)) {
-            std::cerr << "[FrameForge] Failed to create dummy device for discovery." << std::endl;
+            char buf[128];
+            sprintf_s(buf, sizeof(buf), "[FrameForge] D3D11CreateDeviceAndSwapChain failed with HRESULT: 0x%08X", hr);
+            LogToFile(buf);
             return false;
         }
 
@@ -126,12 +146,14 @@ namespace FrameForge::Hooks {
         void* present_addr = vtable[8];
 
         if (MH_CreateHook(present_addr, &HookedPresent, reinterpret_cast<LPVOID*>(&OriginalPresent)) != MH_OK) {
-            std::cerr << "[FrameForge] Failed to create Present hook." << std::endl;
+            LogToFile("[FrameForge] MH_CreateHook(Present) FAILED.");
+            pSwapChain->Release(); pDevice->Release(); pContext->Release();
             return false;
         }
 
         if (MH_EnableHook(present_addr) != MH_OK) {
-            std::cerr << "[FrameForge] Failed to enable Present hook." << std::endl;
+            LogToFile("[FrameForge] MH_EnableHook(Present) FAILED.");
+            pSwapChain->Release(); pDevice->Release(); pContext->Release();
             return false;
         }
 
@@ -139,11 +161,14 @@ namespace FrameForge::Hooks {
         pDevice->Release();
         pContext->Release();
 
-        std::cout << "[FrameForge] Hooking Discovery Successful. Target: " << present_addr << std::endl;
+        char buf[128];
+        sprintf_s(buf, sizeof(buf), "[FrameForge] DX11 Present Hooked at: %p", present_addr);
+        LogToFile(buf);
         return true;
     }
 
     void Shutdown() {
+        LogToFile("[FrameForge] Shutdown: Disabling hooks.");
         MH_DisableHook(MH_ALL_HOOKS);
     }
 }

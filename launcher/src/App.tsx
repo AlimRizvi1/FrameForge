@@ -30,12 +30,16 @@ function App() {
   const [activeTab, setActiveTab] = useState("library");
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
   const [games, setGames] = useState<Game[]>([]);
+  const [isLaunching, setIsLaunching] = useState(false);
 
   const handleLaunch = async (gameId: string, path: string) => {
     try {
+      setIsLaunching(true);
       const result = await invoke("launch_game", { path });
       console.log(result);
+      setTimeout(() => setIsLaunching(false), 5000);
     } catch (error) {
+      setIsLaunching(false);
       if (error === "FILE_NOT_FOUND") {
         await message(`The file at ${path} does not exist. It will be removed from your library.`, {
           title: "File Not Found",
