@@ -1,6 +1,7 @@
 use std::ffi::{c_void, OsStr};
 use std::os::windows::ffi::OsStrExt;
 use std::time::{Duration, Instant};
+use std::collections::HashSet;
 
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
@@ -30,7 +31,7 @@ pub fn launch_and_inject(exe_path: &str, dll_path: &str) -> Result<(), String> {
     si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
     let mut pi = PROCESS_INFORMATION::default();
 
-    println!("[FrameForge] Launching: {}", exe_path);
+    println!("[FrameForge] Launching primary: {}", exe_path);
 
     unsafe {
         let quoted_path = format!("\"{}\"", exe_path);
@@ -56,52 +57,64 @@ pub fn launch_and_inject(exe_path: &str, dll_path: &str) -> Result<(), String> {
             return Err(format!("Failed to create process: {:?}", success.err()));
         }
 
-        let parent_pid = pi.dwProcessId;
-        println!("[FrameForge] Process started (PID: {}). Injecting...", parent_pid);
+        let root_pid = pi.dwProcessId;
+        let mut tracked_pids = HashSet::new();
+        tracked_pids.insert(root_pid);
 
-        // 1. Inject into the initial process
-        if let Err(e) = inject_into_handle(pi.hProcess, &dll_path_wide) {
-            println!("[FrameForge] Initial injection failed: {}", e);
-        }
+        println!("[FrameForge] Root process started (PID: {}). Injecting...", root_pid);
+        let _ = inject_into_handle(pi.hProcess, &dll_path_wide);
 
         ResumeThread(pi.hThread);
+        let _ = CloseHandle(pi.hProcess);
+        let _ = CloseHandle(pi.hThread);
 
-        // 2. Process Tree Monitor (Handoff Detection)
-        // We wait up to 10 seconds to see if the process spawns a child and exits
-        println!("[FrameForge] Monitoring for launcher handoff...");
+        // Recursive Process Tree Monitor
+        println!("[FrameForge] Monitoring process tree for descendants (20s window)...");
         let start_time = Instant::now();
-        let mut injected_pids = vec![parent_pid];
+        
+        while start_time.elapsed() < Duration::from_secs(20) {
+            std::thread::sleep(Duration::from_millis(1000));
 
-        while start_time.elapsed() < Duration::from_secs(10) {
-            std::thread::sleep(Duration::from_millis(500));
+            let current_snapshot = get_all_pids_and_parents();
+            let mut new_children = Vec::new();
 
-            // Check if parent is still alive
-            let mut exit_code: u32 = 0;
-            let _ = GetExitCodeProcess(pi.hProcess, &mut exit_code);
-            
-            // Find children
-            let children = find_child_processes(parent_pid);
-            for child_pid in children {
-                if !injected_pids.contains(&child_pid) {
-                    println!("[FrameForge] Detected child process (PID: {}). Injecting...", child_pid);
-                    if let Ok(h_child) = OpenProcess(PROCESS_ALL_ACCESS, false, child_pid) {
-                        if inject_into_handle(h_child, &dll_path_wide).is_ok() {
-                            println!("[FrameForge] Successfully injected into child.");
-                            injected_pids.push(child_pid);
-                        }
-                        let _ = CloseHandle(h_child);
-                    }
+            // Find all descendants of any currently tracked PID
+            for (pid, ppid) in &current_snapshot {
+                if tracked_pids.contains(ppid) && !tracked_pids.contains(pid) {
+                    new_children.push(*pid);
                 }
             }
 
-            if exit_code != 259 && injected_pids.len() > 1 {
-                println!("[FrameForge] Launcher exited, but child is active. Handoff successful.");
+            for child_pid in new_children {
+                println!("[FrameForge] Descendant detected (PID: {}). Injecting...", child_pid);
+                if let Ok(h_child) = OpenProcess(PROCESS_ALL_ACCESS, false, child_pid) {
+                    if inject_into_handle(h_child, &dll_path_wide).is_ok() {
+                        println!("[FrameForge] Successfully injected into descendant.");
+                    }
+                    let _ = CloseHandle(h_child);
+                }
+                tracked_pids.insert(child_pid);
+            }
+
+            // Check if any tracked process is still alive
+            let mut any_alive = false;
+            for pid in &tracked_pids {
+                if let Ok(h) = OpenProcess(PROCESS_ALL_ACCESS, false, *pid) {
+                    let mut exit_code = 0u32;
+                    if GetExitCodeProcess(h, &mut exit_code).is_ok() && exit_code == 259 {
+                        any_alive = true;
+                        let _ = CloseHandle(h);
+                        break;
+                    }
+                    let _ = CloseHandle(h);
+                }
+            }
+
+            if !any_alive {
+                println!("[FrameForge] All tracked processes exited. Stopping monitor.");
                 break;
             }
         }
-
-        let _ = CloseHandle(pi.hProcess);
-        let _ = CloseHandle(pi.hThread);
     }
 
     Ok(())
@@ -151,12 +164,12 @@ unsafe fn inject_into_handle(h_process: HANDLE, dll_path_wide: &[u16]) -> Result
     Ok(())
 }
 
-fn find_child_processes(parent_pid: u32) -> Vec<u32> {
-    let mut children = Vec::new();
+fn get_all_pids_and_parents() -> Vec<(u32, u32)> {
+    let mut pairs = Vec::new();
     unsafe {
         let snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
             Ok(h) => h,
-            Err(_) => return children,
+            Err(_) => return pairs,
         };
 
         let mut entry = PROCESSENTRY32W::default();
@@ -164,12 +177,10 @@ fn find_child_processes(parent_pid: u32) -> Vec<u32> {
 
         if Process32FirstW(snapshot, &mut entry).is_ok() {
             while Process32NextW(snapshot, &mut entry).is_ok() {
-                if entry.th32ParentProcessID == parent_pid {
-                    children.push(entry.th32ProcessID);
-                }
+                pairs.push((entry.th32ProcessID, entry.th32ParentProcessID));
             }
         }
         let _ = CloseHandle(snapshot);
     }
-    children
+    pairs
 }

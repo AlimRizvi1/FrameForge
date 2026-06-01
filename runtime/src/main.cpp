@@ -13,58 +13,50 @@ void LogToFile(const char* msg) {
     if (fopen_s(&f, FrameForgeLogPath, "a") == 0 && f) {
         SYSTEMTIME st;
         GetLocalTime(&st);
-        fprintf(f, "[%02d:%02d:%02d.%03d] %s\n", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, msg);
+        fprintf(f, "[%02d:%02d:%02d.%03d] [%lu] %s\n", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, GetCurrentProcessId(), msg);
         fclose(f);
     }
 }
 
-void LogToConsole(const char* msg) {
-    std::cout << msg << std::endl;
-    LogToFile(msg);
-}
-
 DWORD WINAPI MainThread(LPVOID lpParam) {
-    AllocConsole();
-    FILE* f;
-    freopen_s(&f, "CONOUT$", "w", stdout);
+    // Only allocate console if a specific debug file exists, to keep game startup clean
+    if (GetFileAttributesA("F:\\FrameForgeDebug.txt") != INVALID_FILE_ATTRIBUTES) {
+        AllocConsole();
+        FILE* f;
+        freopen_s(&f, "CONOUT$", "w", stdout);
+    }
 
-    LogToConsole("[FrameForge] Runtime Injected. Worker thread starting...");
+    LogToFile("Runtime Injected. Worker thread starting...");
 
-    const int MAX_RETRIES = 120; // 2 minutes
+    const int MAX_RETRIES = 60; 
     int retries = 0;
 
     while (retries < MAX_RETRIES && !g_HooksInitialized.load()) {
         HMODULE d3d11 = GetModuleHandleA("d3d11.dll");
         
         if (d3d11) {
-            LogToConsole("[FrameForge] d3d11.dll detected. Starting discovery...");
+            LogToFile("d3d11.dll detected. Starting discovery...");
             if (FrameForge::Hooks::Initialize()) {
-                LogToConsole("[FrameForge] Hooks Initialized Successfully.");
+                LogToFile("Hooks Initialized Successfully.");
                 g_HooksInitialized.store(true);
                 break;
             } else {
-                LogToConsole("[FrameForge] Hooks::Initialize failed. Retrying...");
+                LogToFile("Hooks::Initialize failed. Retrying...");
             }
         }
 
         retries++;
-        if (retries % 10 == 0) {
-            char buf[128];
-            sprintf_s(buf, sizeof(buf), "[FrameForge] Waiting for d3d11.dll... (%d/%d)", retries, MAX_RETRIES);
-            LogToConsole(buf);
-        }
         Sleep(1000);
     }
 
     if (g_HooksInitialized.load()) {
-        LogToConsole("[FrameForge] Engine ACTIVE. Entering heartbeat mode.");
-        // Keep thread alive to monitor status
+        LogToFile("Engine ACTIVE. Entering heartbeat mode.");
         while (true) {
-            Sleep(5000);
-            LogToFile("[FrameForge] Heartbeat - Engine Still Injected");
+            Sleep(10000);
+            LogToFile("Heartbeat - Engine Still Injected");
         }
     } else {
-        LogToConsole("[FrameForge] FAILED to initialize within timeout.");
+        LogToFile("FAILED to initialize within timeout.");
     }
 
     return 0;
@@ -74,14 +66,14 @@ BOOL WINAPI DllMain(HINSTANCE hModule, DWORD dwReason, LPVOID lpReserved) {
     switch (dwReason) {
     case DLL_PROCESS_ATTACH:
         DisableThreadLibraryCalls(hModule);
-        LogToFile("[FrameForge] DllMain ATTACH");
+        LogToFile("DllMain ATTACH");
         if (!CreateThread(nullptr, 0, MainThread, hModule, 0, nullptr)) {
-            LogToFile("[FrameForge] FATAL: Failed to create MainThread");
+            LogToFile("FATAL: Failed to create MainThread");
             return FALSE;
         }
         break;
     case DLL_PROCESS_DETACH:
-        LogToFile("[FrameForge] DllMain DETACH - DLL is being unloaded!");
+        LogToFile("DllMain DETACH - DLL is being unloaded!");
         FrameForge::Hooks::Shutdown();
         MH_Uninitialize();
         break;
